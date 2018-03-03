@@ -3,6 +3,10 @@ utils.py
 Utilities
 """
 from collections import Counter
+import seaborn as sns
+import matplotlib.pyplot as plt
+import numpy as np
+from sklearn.model_selection import StratifiedKFold
 
 # AMINOACID UTILS
 AA_NAMES = {'A': 'alanine',
@@ -97,6 +101,16 @@ for code, v in AA_WILD.items():
         AA_CODES[AA_NAMES[aa]][code] = aa_wild_prior(code, aa, v)
 
 
+def replace_wild_first(seq):
+    for aa, v in AA_WILD.items():
+        seq = seq.replace(aa, v[0])
+    return seq
+
+
+def replace_selenocysteine(seq):
+    return seq.replace('U', 'C')
+
+
 def count_aa(seq):
     # TODO: Do not distribute wildcards?
     # Count aminoacids and compute sequence lengths
@@ -114,5 +128,53 @@ def count_aa(seq):
     # rel_counts*seq_len are the absolute counts
 
     # Compute molecular weight
-    mol_weight = sum([v*AA_MOLECULAR_WEIGHTS[k] for k, v in aa_counts.items()])
-    return rel_counts, seq_len, mol_weight
+    mol_weight = sum([v * AA_MOLECULAR_WEIGHTS[k] for k, v in aa_counts.items()])
+    return rel_counts, seq_len, mol_weight, AA_CODES_LIST
+
+
+# FLEXIBILITY SCORE
+def flexibility_index(scores):
+    # Accuracy of protein flexibility predictions.
+    # Scores are the flexibility scores obtained by sliding a window of length 9, as described in
+    # "Accuracy of protein flexibility predictions". Vihinen M. et al. 1994
+    n = len(scores)
+    return np.sum(scores[9: n - 9])/n
+
+
+# CROSS-VALIDATION UTILS
+def get_val_split(y_train):
+    y_train_ = y_train
+    if y_train.ndim == 2:  # one-hot
+        y_train_ = np.argmax(y_train, axis=1)
+
+    skf = StratifiedKFold(n_splits=5, shuffle=True)
+    return next(skf.split(np.zeros_like(y_train_), y_train_))
+
+
+# PLOTTING UTILS
+def plot_distribution(data, key='seq_len'):
+    sns.distplot(data[key])
+
+
+def plot_violin(df, class_dict, key='seq_len', threshold=2000):
+    plt.subplots(figsize=(9, 7))
+    ax = sns.violinplot(x='class', y=key, data=df[df[key] < threshold])
+    class_ids = ax.get_xticklabels()
+    class_dict_inv = {v: k for k, v in class_dict.items()}
+    x_ticks = [class_dict_inv[int(class_id.get_text())] for class_id in class_ids]
+    ax.set_xticklabels(x_ticks)
+
+
+def aminoacid_corr_heatmap(df, freq_key='global_rel_', vmax=.4, title=None):
+    columns = [col for col in df.columns.values if col.startswith(freq_key)]
+    corr = df[columns].corr()
+    mask = np.zeros_like(corr, dtype=np.bool)
+    mask[np.triu_indices_from(mask)] = True
+    cmap = sns.diverging_palette(220, 10, as_cmap=True)
+    plt.subplots(figsize=(9, 7))
+    ax = sns.heatmap(corr, vmax=vmax, mask=mask, cmap=cmap)
+    xticks_aa = [tick.get_text().split('_')[-1] for tick in ax.get_xticklabels()]
+    new_xticks = ['{} ({})'.format(AA_NAMES[x_tick], x_tick) for x_tick in xticks_aa]
+    ax.set_xticklabels(new_xticks)
+    ax.set_yticklabels(new_xticks)
+    ax.set_title(title)

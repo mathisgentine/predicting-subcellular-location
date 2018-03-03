@@ -1,25 +1,22 @@
-from sklearn.svm import SVC
 from data_pipeline import get_sequences, N_CLASSES
 from sklearn.model_selection import cross_val_score
-from sklearn.model_selection import RandomizedSearchCV
 import numpy as np
 from keras.models import Model, Input
-from keras.layers import LSTM, Dense, Dropout, Activation
+from keras.layers import LSTM, Dense, Dropout, Activation, Embedding
 from keras.optimizers import RMSprop
-from sklearn.utils import class_weight
-from sklearn.model_selection import StratifiedKFold
-
+from utils import get_val_split
 
 BATCH_SIZE = 128
 EPOCHS = 10
-N_FOLDS = 5
 
 
-def get_model(input_dim, n_classes):
-    sequences = Input(shape=(None, input_dim))
+def get_model(input_dim, n_classes, embedding_dim=20):
+    sequences = Input(shape=(None,))
+    embedding = Embedding(input_dim=input_dim,
+                          output_dim=embedding_dim)(sequences)  # Shape: (batch_size, seq_len, embedding_dim)
     lstm = LSTM(100,
                 dropout=0,
-                recurrent_dropout=0)(sequences)
+                recurrent_dropout=0)(embedding)
     dense = Dense(n_classes)(lstm)
     dense = Activation('softmax')(dense)
 
@@ -31,12 +28,14 @@ def get_model(input_dim, n_classes):
 
 
 x_train, y_train, x_test, class_dict = get_sequences()
-skf = StratifiedKFold(n_splits=N_FOLDS, shuffle=True)
-train_indices, val_indices = next(skf.split(x_train, y_train))
-x_val, y_val = x_train[val_indices, :, :], y_train[val_indices]
-x_train, y_train = x_train[train_indices, :, :], y_train[train_indices]
+train_indices, val_indices = get_val_split(y_train)
+x_val, y_val = x_train[val_indices, :], y_train[val_indices]
+x_train, y_train = x_train[train_indices, :], y_train[train_indices]
+print(x_train.shape)
+input_dim = max(np.max(x_train), np.max(x_val))
+print(input_dim)
 
-model = get_model(x_train[0].shape[1], N_CLASSES)
+model = get_model(input_dim+1, N_CLASSES)
 model.fit(x=x_train,
           y=y_train,
           batch_size=BATCH_SIZE,
