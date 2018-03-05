@@ -73,9 +73,9 @@ def _assertions(data, eps=1e-7):
         assert '-' not in seq
 
     # Feature assertions
-    if 'global_rel' in data and 'local_first_rel' in data and 'local_last_rel' in data:
-        for global_rel, local_first_rel, local_last_rel in zip(data['global_rel'], data['local_first_rel'],
-                                                               data['local_last_rel']):
+    if 'counts' in data and 'counts_localfirst' in data and 'counts_locallast' in data:
+        for global_rel, local_first_rel, local_last_rel in zip(data['counts'], data['counts_localfirst'],
+                                                               data['counts_locallast']):
             assert abs(1 - sum(global_rel)) < eps
             assert abs(1 - sum(local_first_rel)) < eps
             assert abs(1 - sum(local_last_rel)) < eps
@@ -89,126 +89,92 @@ def _create_features(data, local=50, indiv_keys=False):
     # Be careful: some chains have less than 50 aminoacids
     aa_list = None
     seq_lens = []
-    global_rel = []
-    local_first_rel = []
-    local_last_rel = []
+    counts = []
+    counts_localfirst = []
+    counts_locallast = []
     mol_weights = []
-    global_psaac = []
+    hydrophobicity = []
+    hydrophilicity = []
     for seq in data['seq']:
         # Count aminoacids, find sequence length and compute molecular weight
         # counts, seq_len, mol_weight, aa_list = aa_composition(seq)
-        counts, psaac, seq_len, mol_weight, aa_list = pseudo_aa_composition(seq, lambd=1)
-        global_rel.append(counts)
-        global_psaac.append(psaac)
+        c, seq_len, mol_weight, aa_list = aa_composition(seq)
+        counts.append(c)
         seq_lens.append(seq_len)
         mol_weights.append(mol_weight)
 
         # Count local_first first aminonacids
-        counts, seq_len, _, _ = aa_composition(seq[:local])
-        local_first_rel.append(counts)
+        c, _, _, _ = aa_composition(seq[:local])
+        counts_localfirst.append(c)
 
         # Count local_last last aminonacids
-        counts, seq_len, _, _ = aa_composition(seq[-local:])
-        local_last_rel.append(counts)
+        c, _, _, _ = aa_composition(seq[-local:])
+        counts_locallast.append(c)
 
-    global_rel = np.array(global_rel)
-    local_first_rel = np.array(local_first_rel)
-    local_last_rel = np.array(local_last_rel)
-    global_psaac = np.array(global_psaac)
+        # Compute hydrophobicity and hydrophilicity
+        hydrophobicity.append(seq_hydrophobicity(seq))
+        hydrophilicity.append(seq_hydrophilicity(seq))
 
     data['seq_len'] = np.array(seq_lens)
     data['molecular_weight'] = np.array(mol_weights)
+    data['hydrophobicity'] = np.array(hydrophobicity)
+    data['hydrophilicity'] = np.array(hydrophilicity)
+
+    counts = np.array(counts)
+    counts_localfirst = np.array(counts_localfirst)
+    counts_locallast = np.array(counts_locallast)
     if indiv_keys:
         for i, aa in enumerate(aa_list):
-            data['global_rel_{}'.format(aa)] = global_rel[:, i]
-            data['local_first_rel_{}'.format(aa)] = local_first_rel[:, i]
-            data['local_last_rel_{}'.format(aa)] = local_last_rel[:, i]
-        for i in range(global_psaac.shape[1]):
-            data['global_psaac_{}'.format(i)] = global_psaac[:, i]
+            data['counts_{}'.format(aa)] = counts[:, i]
+            data['counts_localfirst_{}'.format(aa)] = counts_localfirst[:, i]
+            data['counts_locallast_{}'.format(aa)] = counts_locallast[:, i]
     else:
-        data['global_rel'] = global_rel
-        data['global_psaac'] = global_psaac
-        data['local_first_rel'] = local_first_rel
-        data['local_last_rel'] = local_last_rel
+        data['counts'] = counts
+        data['counts_localfirst'] = counts_localfirst
+        data['counts_locallast'] = counts_locallast
     return aa_list
+
+
+def _make_numpy(data):
+    for k, v in data.items():
+        data[k] = np.array(v)
 
 
 def _create_features_biopython(data, local=50):
     from Bio.SeqUtils.ProtParam import ProteinAnalysis
 
-    mol_weights = []
-    iso_points = []
-    aromaticity = []
-    gravy = []
-    instability_index = []
-    secondary_structure_fraction = []
-    flexibility = []
-    local_mw_first = []
-    local_mw_last = []
-    local_ip_first = []
-    local_ip_last = []
-    local_ssf_first = []
-    local_ssf_last = []
-    local_g_first = []
-    local_g_last = []
-    local_a_first = []
-    local_a_last = []
-    local_ii_first = []
-    local_ii_last = []
+    feature_fun = {
+        'molecular_weight{}': lambda pa: pa.molecular_weight(),
+        'iso_point{}': lambda pa: pa.isoelectric_point(),
+        'aromaticity{}': lambda pa: pa.aromaticity(),
+        # 'gravy{}': lambda pa: pa.gravy(),
+        'instability_index{}': lambda pa: pa.instability_index(),
+        'flexibility{}': lambda pa: flexibility_index(pa.flexibility()),
+        'secondary_structure_fraction{}': lambda pa: pa.secondary_structure_fraction()
+    }
+
+    for k in feature_fun.keys():
+        data[k.format('')] = []
+        data[k.format('_localfirst')] = []
+        data[k.format('_locallast')] = []
+
     for seq in data['seq']:
         # Global features
-        seq = replace_wild_first(seq)
-        prot_analysis = ProteinAnalysis(seq)
-        mol_weights.append(prot_analysis.molecular_weight())
-        iso_points.append(prot_analysis.isoelectric_point())
-        aromaticity.append(prot_analysis.aromaticity())
-        secondary_structure_fraction.append(prot_analysis.secondary_structure_fraction())
-
-        prot_analysis = ProteinAnalysis(replace_selenocysteine(seq))
-        gravy.append(prot_analysis.gravy())
-        instability_index.append(prot_analysis.instability_index())
-        flexibility.append(flexibility_index(prot_analysis.flexibility()))
+        seq = replace_selenocysteine(replace_wild_first(seq))
+        pa = ProteinAnalysis(seq)
+        for k, fun in feature_fun.items():
+            data[k.format('')].append(fun(pa))
 
         # Local features
-        prot_analysis = ProteinAnalysis(seq[:local])
-        local_mw_first.append(prot_analysis.molecular_weight())
-        local_ip_first.append(prot_analysis.isoelectric_point())
-        local_ssf_first.append(prot_analysis.secondary_structure_fraction())
-        local_a_first.append(prot_analysis.aromaticity())
+        pa = ProteinAnalysis(seq[:local])
+        for k, fun in feature_fun.items():
+            data[k.format('_localfirst')].append(fun(pa))
 
-        prot_analysis = ProteinAnalysis(replace_selenocysteine(seq[:local]))
-        local_g_first.append(prot_analysis.gravy())
-        local_ii_first.append(prot_analysis.instability_index())
+        pa = ProteinAnalysis(seq[-local:])
+        for k, fun in feature_fun.items():
+            data[k.format('_locallast')].append(fun(pa))
 
-        prot_analysis = ProteinAnalysis(seq[-local:])
-        local_mw_last.append(prot_analysis.molecular_weight())
-        local_ip_last.append(prot_analysis.isoelectric_point())
-        local_ssf_last.append(prot_analysis.secondary_structure_fraction())
-        local_a_last.append(prot_analysis.aromaticity())
-
-        prot_analysis = ProteinAnalysis(replace_selenocysteine(seq[-local:]))
-        local_g_last.append(prot_analysis.gravy())
-        local_ii_last.append(prot_analysis.instability_index())
-
-    data['molecular_weight'] = np.array(mol_weights)
-    data['iso_point'] = np.array(iso_points)
-    data['aromaticity'] = np.array(aromaticity)
-    data['gravy'] = np.array(gravy)
-    data['instability_index'] = np.array(instability_index)
-    data['secondary_structure_fraction'] = np.array(secondary_structure_fraction)
-    data['flexibility'] = np.array(flexibility)
-    data['local_molecular_weight_first'] = np.array(local_mw_first)
-    data['local_molecular_weight_last'] = np.array(local_mw_last)
-    data['local_iso_point_first'] = np.array(local_ip_first)
-    data['local_iso_point_last'] = np.array(local_ip_last)
-    data['local_ssf_first'] = np.array(local_ssf_first)
-    data['local_ssf_last'] = np.array(local_ssf_last)
-    data['local_gravy_first'] = np.array(local_g_first)
-    data['local_gravy_last'] = np.array(local_g_last)
-    data['local_aromaticity_first'] = np.array(local_a_first)
-    data['local_aromaticity_last'] = np.array(local_a_last)
-    data['local_ii_first'] = np.array(local_ii_first)
-    data['local_ii_last'] = np.array(local_ii_last)
+    _make_numpy(data)
 
 
 def _normalize_column(train_arr, test_arr, mode=0):
@@ -226,43 +192,43 @@ def _normalize_column(train_arr, test_arr, mode=0):
 
 
 def _normalize(train, test):
-    normalize_features = ['seq_len', 'molecular_weight', 'iso_point', 'gravy',
+    normalize_features = {'seq_len', 'molecular_weight', 'iso_point',
                           'aromaticity', 'instability_index', 'flexibility',
-                          'local_molecular_weight_first', 'local_molecular_weight_last',
-                          'local_iso_point_first', 'local_iso_point_last',
-                          'local_gravy_first', 'local_gravy_last',
-                          'local_aromaticity_first', 'local_aromaticity_last',
-                          'local_ii_first', 'local_ii_last', 'global_psaac'
-                          ]
+                          'molecular_weight_localfirst', 'molecular_weight_locallast',
+                          'iso_point_localfirst', 'iso_point_locallast',
+                          # 'gravy_localfirst', 'gravy_locallast',
+                          # 'aromaticity_localfirst', 'aromaticity_locallast',
+                          }
     for feature in normalize_features:
         train[feature], test[feature] = _normalize_column(train[feature], test[feature])
 
 
 def _get_features(data):
     x = np.concatenate((data['seq_len'][:, None],
-                        data['global_rel'],
-                        data['global_psaac'],
-                        data['local_first_rel'],
-                        data['local_last_rel'],
+                        data['counts'],
+                        data['counts_localfirst'],
+                        data['counts_locallast'],
                         data['molecular_weight'][:, None],
                         data['iso_point'][:, None],
                         data['aromaticity'][:, None],
-                        data['gravy'][:, None],
+                        # data['gravy'][:, None],
                         data['instability_index'][:, None],
                         data['secondary_structure_fraction'],
                         data['flexibility'][:, None],
-                        data['local_molecular_weight_first'][:, None],
-                        data['local_molecular_weight_last'][:, None],
-                        data['local_iso_point_first'][:, None],
-                        data['local_iso_point_last'][:, None],
-                        data['local_ssf_first'],
-                        data['local_ssf_last'],
-                        data['local_gravy_first'][:, None],
-                        data['local_gravy_last'][:, None],
-                        data['local_aromaticity_first'][:, None],
-                        data['local_aromaticity_last'][:, None],
-                        #data['local_ii_first'][:, None],
-                        #data['local_ii_last'][:, None]
+                        data['molecular_weight_localfirst'][:, None],
+                        data['molecular_weight_locallast'][:, None],
+                        # data['iso_point_localfirst'][:, None],
+                        # data['iso_point_locallast'][:, None],
+                        # data['local_ssf_first'],
+                        # data['local_ssf_last'],
+                        # data['gravy_localfirst'][:, None],
+                        # data['gravy_locallast'][:, None],
+                        # data['aromaticity_localfirst'][:, None],
+                        # data['aromaticity_localfirst'][:, None],
+                        data['hydrophobicity'][:, None],
+                        data['hydrophilicity'][:, None]
+                        # data['local_ii_first'][:, None],
+                        # data['local_ii_last'][:, None]
                         ), axis=1)
     y = data['class']
     return x, y
@@ -301,7 +267,7 @@ def _encode_aminoacids(data, aa_dict=None, one_hot=False, pad=None):
     return np.array(encoded_sequences), aa_dict
 
 
-def get_handcrafted_data():
+def get_handcrafted_data(one_hot=False):
     train, test, _ = _get_data()
     _create_features(train)
     _create_features(test)
@@ -310,7 +276,7 @@ def get_handcrafted_data():
     _assertions(train)
     _assertions(test)
     _normalize(train, test)
-    class_dict = _encode_class(train)
+    class_dict = _encode_class(train, one_hot=one_hot)
     x_train, y_train = _get_features(train)
     x_test, _ = _get_features(test)
     return x_train, y_train, x_test, class_dict
@@ -327,9 +293,9 @@ def get_handcrafted_raw_data():
     return train, test, class_dict
 
 
-def get_sequences(trim_len=2000, one_hot=False):
+def get_sequences(trim_len=2000, one_hot=True):
     train, test, max_len = _get_data()
-    class_dict = _encode_class(train, one_hot=True)
+    class_dict = _encode_class(train, one_hot=one_hot)
     x_train, aa_dict = _encode_aminoacids(train, one_hot=one_hot, pad=trim_len)
     x_test, _ = _encode_aminoacids(test, aa_dict, one_hot=one_hot, pad=trim_len)
     y_train = train['class']

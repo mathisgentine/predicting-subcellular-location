@@ -218,6 +218,18 @@ def pseudo_aa_composition(seq, lambd, w=0.05):
     return f, p, seq_len, mol_weight, aa_list
 
 
+def seq_hydrophobicity(seq):
+    return np.mean([AA_HYDROPHOBICITY[aa] for aa in seq])
+
+
+def seq_hydrophilicity(seq):
+    return np.mean([AA_HYDROPHILICITY[aa] for aa in seq])
+
+
+def seq_molecular_weight(seq):
+    return np.mean([AA_MOLECULAR_WEIGHTS[aa] for aa in seq])
+
+
 # FLEXIBILITY SCORE
 def flexibility_index(scores):
     # Accuracy of protein flexibility predictions.
@@ -233,7 +245,7 @@ def get_val_split(y_train):
     if y_train.ndim == 2:  # one-hot
         y_train_ = np.argmax(y_train, axis=1)
 
-    skf = StratifiedKFold(n_splits=5, shuffle=True)
+    skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=0)
     return next(skf.split(np.zeros_like(y_train_), y_train_))
 
 
