@@ -93,24 +93,28 @@ def _create_features(data, local=50, indiv_keys=False):
     local_first_rel = []
     local_last_rel = []
     mol_weights = []
+    global_psaac = []
     for seq in data['seq']:
         # Count aminoacids, find sequence length and compute molecular weight
-        counts, seq_len, mol_weight, aa_list = count_aa(seq)
+        # counts, seq_len, mol_weight, aa_list = aa_composition(seq)
+        counts, psaac, seq_len, mol_weight, aa_list = pseudo_aa_composition(seq, lambd=1)
         global_rel.append(counts)
+        global_psaac.append(psaac)
         seq_lens.append(seq_len)
         mol_weights.append(mol_weight)
 
         # Count local_first first aminonacids
-        counts, seq_len, _, _ = count_aa(seq[:local])
+        counts, seq_len, _, _ = aa_composition(seq[:local])
         local_first_rel.append(counts)
 
         # Count local_last last aminonacids
-        counts, seq_len, _, _ = count_aa(seq[-local:])
+        counts, seq_len, _, _ = aa_composition(seq[-local:])
         local_last_rel.append(counts)
 
     global_rel = np.array(global_rel)
     local_first_rel = np.array(local_first_rel)
     local_last_rel = np.array(local_last_rel)
+    global_psaac = np.array(global_psaac)
 
     data['seq_len'] = np.array(seq_lens)
     data['molecular_weight'] = np.array(mol_weights)
@@ -119,8 +123,11 @@ def _create_features(data, local=50, indiv_keys=False):
             data['global_rel_{}'.format(aa)] = global_rel[:, i]
             data['local_first_rel_{}'.format(aa)] = local_first_rel[:, i]
             data['local_last_rel_{}'.format(aa)] = local_last_rel[:, i]
+        for i in range(global_psaac.shape[1]):
+            data['global_psaac_{}'.format(i)] = global_psaac[:, i]
     else:
         data['global_rel'] = global_rel
+        data['global_psaac'] = global_psaac
         data['local_first_rel'] = local_first_rel
         data['local_last_rel'] = local_last_rel
     return aa_list
@@ -225,7 +232,7 @@ def _normalize(train, test):
                           'local_iso_point_first', 'local_iso_point_last',
                           'local_gravy_first', 'local_gravy_last',
                           'local_aromaticity_first', 'local_aromaticity_last',
-                          'local_ii_first', 'local_ii_last'
+                          'local_ii_first', 'local_ii_last', 'global_psaac'
                           ]
     for feature in normalize_features:
         train[feature], test[feature] = _normalize_column(train[feature], test[feature])
@@ -234,6 +241,7 @@ def _normalize(train, test):
 def _get_features(data):
     x = np.concatenate((data['seq_len'][:, None],
                         data['global_rel'],
+                        data['global_psaac'],
                         data['local_first_rel'],
                         data['local_last_rel'],
                         data['molecular_weight'][:, None],
@@ -289,7 +297,6 @@ def _encode_aminoacids(data, aa_dict=None, one_hot=False, pad=None):
             encoded_seq = np.pad(encoded_seq,
                                  (0, max(pad - seq_len, 0)),
                                  mode='constant', constant_values=0)
-            # raise NotImplementedError('Padding is only supported for one-hot vectors')
         encoded_sequences.append(encoded_seq)
     return np.array(encoded_sequences), aa_dict
 
