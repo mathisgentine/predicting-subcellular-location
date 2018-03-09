@@ -5,9 +5,11 @@ from keras.models import Model, Input
 from keras.layers import LSTM, Dense, Dropout, Activation, Embedding
 from keras.optimizers import Adam
 from utils import get_val_split
+from keras.models import load_model
+
 
 BATCH_SIZE = 128
-EPOCHS = 60
+EPOCHS = 70
 
 
 def get_model(input_dim, n_classes):
@@ -48,4 +50,6 @@ model.fit(x=x_train,
 cv_score = model.evaluate(x_val, y_val)[1]
 print('CV score: {}'.format(cv_score))
 
-#model.save('../checkpoints/model.hd')
+model.save('../checkpoints/model.h5')
+del model
+model = load_model('../checkpoints/model.h5')

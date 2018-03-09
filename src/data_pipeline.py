@@ -58,7 +58,7 @@ def _get_data():
     train = {'info': [], 'seq': [], 'class': []}
     test = {'info': [], 'seq': [], 'class': []}
     max_len = _load_data(test, TEST, None)
-    print('Max sequence lenght test: {}'.format(max_len))
+    print('Max sequence length test: {}'.format(max_len))
     for c in CLASSES:
         seq_len = _load_data(train, c, c)
         max_len = max((max_len, seq_len))
@@ -73,8 +73,8 @@ def _assertions(data, eps=1e-7):
         assert '-' not in seq
 
     # Feature assertions
-    if 'counts' in data and 'counts_localfirst' in data and 'counts_locallast' in data:
-        for global_rel, local_first_rel, local_last_rel in zip(data['counts'], data['counts_localfirst'],
+    if 'counts_global' in data and 'counts_localfirst' in data and 'counts_locallast' in data:
+        for global_rel, local_first_rel, local_last_rel in zip(data['counts_global'], data['counts_localfirst'],
                                                                data['counts_locallast']):
             assert abs(1 - sum(global_rel)) < eps
             assert abs(1 - sum(local_first_rel)) < eps
@@ -125,11 +125,11 @@ def _create_features(data, local=50, indiv_keys=False):
     counts_locallast = np.array(counts_locallast)
     if indiv_keys:
         for i, aa in enumerate(aa_list):
-            data['counts_{}'.format(aa)] = counts[:, i]
+            data['counts_global_{}'.format(aa)] = counts[:, i]
             data['counts_localfirst_{}'.format(aa)] = counts_localfirst[:, i]
             data['counts_locallast_{}'.format(aa)] = counts_locallast[:, i]
     else:
-        data['counts'] = counts
+        data['counts_global'] = counts
         data['counts_localfirst'] = counts_localfirst
         data['counts_locallast'] = counts_locallast
     return aa_list
@@ -140,8 +140,9 @@ def _make_numpy(data):
         data[k] = np.array(v)
 
 
-def _create_features_biopython(data, local=50):
+def _create_features_biopython(data, local=50, indiv_keys=False):
     from Bio.SeqUtils.ProtParam import ProteinAnalysis
+    from Bio.SeqUtils.ProtParam import ProtParamData
 
     feature_fun = {
         'molecular_weight{}': lambda pa: pa.molecular_weight(),
@@ -176,6 +177,17 @@ def _create_features_biopython(data, local=50):
 
     _make_numpy(data)
 
+    if indiv_keys:
+        ssf_len = data['secondary_structure_fraction'].shape[1]
+        for i in range(ssf_len):
+            data['secondary_structure_fraction_{}'.format(i)] = data['secondary_structure_fraction'][:, i]
+            data['secondary_structure_fraction_localfirst_{}'.format(i)] = data['secondary_structure_fraction_localfirst'][:, i]
+            data['secondary_structure_fraction_locallast_{}'.format(i)] = data['secondary_structure_fraction_locallast'][:, i]
+
+        del data['secondary_structure_fraction']
+        del data['secondary_structure_fraction_localfirst']
+        del data['secondary_structure_fraction_locallast']
+
 
 def _normalize_column(train_arr, test_arr, mode=0):
     concat = np.concatenate((train_arr, test_arr))
@@ -205,7 +217,7 @@ def _normalize(train, test):
 
 def _get_features(data):
     x = np.concatenate((data['seq_len'][:, None],
-                        data['counts'],
+                        data['counts_global'],
                         data['counts_localfirst'],
                         data['counts_locallast'],
                         data['molecular_weight'][:, None],
@@ -288,6 +300,8 @@ def get_handcrafted_raw_data():
     class_dict = _encode_class(train)
     _create_features(train, indiv_keys=True)
     _create_features(test, indiv_keys=True)
+    _create_features_biopython(train, indiv_keys=True)
+    _create_features_biopython(test, indiv_keys=True)
     _assertions(train)
     _assertions(test)
     return train, test, class_dict

@@ -6,7 +6,11 @@ from collections import Counter
 import seaborn as sns
 import matplotlib.pyplot as plt
 from sklearn.model_selection import StratifiedKFold
+from sklearn.metrics import confusion_matrix
 import numpy as np
+import itertools
+from sklearn.metrics import roc_curve
+from sklearn.metrics import auc
 
 # AMINOACID UTILS
 AA_NAMES = {'A': 'alanine',
@@ -249,25 +253,36 @@ def get_val_split(y_train):
     return next(skf.split(np.zeros_like(y_train_), y_train_))
 
 
+def get_test_split(y):
+    y_ = y
+    if y.ndim == 2:  # one-hot
+        y_ = np.argmax(y, axis=1)
+
+    skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=0)
+    train_idxs, test_idxs = next(skf.split(np.zeros_like(y_), y_))
+    return train_idxs, test_idxs
+
+
 # PLOTTING UTILS
 def plot_distribution(data, key='seq_len'):
     sns.distplot(data[key])
 
 
 def plot_violin(df, class_dict, key='seq_len', threshold=None):
+    df_ = df
     if threshold:
-        df = df[df[key] < threshold]
+        df_ = df[df[key] < threshold]
     plt.subplots(figsize=(9, 7))
-    ax = sns.violinplot(x='class', y=key, data=df[df[key] < threshold])
+    ax = sns.violinplot(x='class', y=key, data=df_)
     class_ids = ax.get_xticklabels()
     class_dict_inv = {v: k for k, v in class_dict.items()}
     x_ticks = [class_dict_inv[int(class_id.get_text())] for class_id in class_ids]
     ax.set_xticklabels(x_ticks)
 
 
-def aminoacid_corr_heatmap(df, freq_key='global_rel_', vmax=.4, title=None):
+def aminoacid_corr_heatmap(df, df_filt, freq_key='counts_global_', vmax=.4, title=None):
     columns = [col for col in df.columns.values if col.startswith(freq_key)]
-    corr = df[columns].corr()
+    corr = df_filt[columns].corr() - df[columns].corr()
     mask = np.zeros_like(corr, dtype=np.bool)
     mask[np.triu_indices_from(mask)] = True
     cmap = sns.diverging_palette(220, 10, as_cmap=True)
@@ -310,3 +325,63 @@ def densities_joy_plot(df, class_dict, key='seq_len', threshold=None):
     g.set_titles('')
     g.set(yticks=[])
     g.despine(bottom=True, left=True)
+
+
+def plot_confusion_matrix(y_pred, y_test, classes,
+                          normalize=False,
+                          title='Confusion matrix',
+                          cmap=plt.cm.Blues):
+    """
+    This function prints and plots the confusion matrix.
+    Normalization can be applied by setting `normalize=True`.
+    """
+
+    cm = confusion_matrix(y_test, y_pred)
+
+    if normalize:
+        cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+        print("Normalized confusion matrix")
+    else:
+        print('Confusion matrix, without normalization')
+
+    print(cm)
+
+    plt.figure()
+    plt.imshow(cm, interpolation='nearest', cmap=cmap)
+    plt.title(title)
+    plt.colorbar()
+    tick_marks = np.arange(len(classes))
+    plt.xticks(tick_marks, classes, rotation=45)
+    plt.yticks(tick_marks, classes)
+
+    fmt = '.2f' if normalize else 'd'
+    thresh = cm.max() / 2.
+    for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
+        plt.text(j, i, format(cm[i, j], fmt),
+                 horizontalalignment="center",
+                 color="white" if cm[i, j] > thresh else "black")
+
+    plt.tight_layout()
+    plt.ylabel('True label')
+    plt.xlabel('Predicted label')
+    plt.show()
+
+
+def plot_roc_curve(y_pred, y_true, class_dict):
+    n_classes = len(class_dict)
+    if y_true.ndim == 1:
+        y_true = np.eye(n_classes)[y_true]
+
+    for k, i in class_dict.items():
+        fpr, tpr, _ = roc_curve(y_true[:, i], y_pred[:, i])
+        roc_auc = auc(fpr, tpr)
+        plt.plot(tpr, fpr, label='{} (AUC={})'.format(k, round(roc_auc, 2)))
+
+    plt.plot([0, 1], [0, 1], 'k--')  # random predictions curve
+    plt.xlim([0, 1])
+    plt.ylim([0, 1])
+    plt.ylabel('False Positive Rate')
+    plt.xlabel('Sensitivity')
+    plt.title('Receiver Operating Characteristic')
+    plt.legend(loc='upper left')
+    plt.show()
