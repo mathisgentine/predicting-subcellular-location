@@ -1,4 +1,4 @@
-from sklearn.svm import SVC
+from sklearn.ensemble import RandomForestClassifier
 from data_pipeline import get_handcrafted_data
 from sklearn.model_selection import cross_val_score
 from sklearn.model_selection import RandomizedSearchCV
@@ -6,7 +6,7 @@ import numpy as np
 from utils import get_test_split, get_val_split, plot_confusion_matrix, plot_roc_curve
 from sklearn.metrics import f1_score
 
-DO_CV = False
+DO_CV = True
 
 x, y, x_blind, class_dict = get_handcrafted_data()
 train_idxs, test_idxs = get_test_split(y)
@@ -14,21 +14,11 @@ x_train, y_train = x[train_idxs, :], y[train_idxs]
 x_test, y_test = x[test_idxs, :], y[test_idxs]
 
 if DO_CV:
-    model = SVC(C=700)  # , probability=True
+    model = RandomForestClassifier(n_estimators=150, min_samples_leaf=5)  # , probability=True
     cv_score = cross_val_score(model, x_train, y_train, cv=4, scoring='accuracy')  # f1_micro
     print('CV score. Mean: {}. Sd: {}'.format(np.mean(cv_score), np.std(cv_score)))
-
-    cs = []
-    scores = []
-    for c in np.random.uniform(1, 50, 50):
-        model = SVC(C=c)  # , probability=True
-        cv_score = cross_val_score(model, x_train, y_train, cv=4, scoring='f1_micro')
-        cs.append(c)
-        scores.append(np.mean(cv_score))
-        print('C: {}. CV score. Mean: {}. Sd: {}'.format(c, np.mean(cv_score), np.std(cv_score)))
-    print(list(zip(cs, cv_score)))
 else:
-    model = SVC(C=40, probability=True, random_state=0)
+    model = RandomForestClassifier(random_state=0)
     model.fit(x_train, y_train)
     test_score = model.score(x_test, y_test)
     print('Test score: {}'.format(test_score))

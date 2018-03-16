@@ -11,6 +11,7 @@ import numpy as np
 import itertools
 from sklearn.metrics import roc_curve
 from sklearn.metrics import auc
+import pandas as pd
 
 # AMINOACID UTILS
 AA_NAMES = {'A': 'alanine',
@@ -112,7 +113,7 @@ AA_MOLECULAR_WEIGHTS.update({'U': 167.1,  # 21st aminoacid
 AA_MOLECULAR_WEIGHTS_NORM = {k: (v - AA_MOLECULAR_WEIGHTS_MEAN) / AA_MOLECULAR_WEIGHTS_STD for k, v in
                              AA_MOLECULAR_WEIGHTS.items()}
 
-# Kyte & Doolittle index of hydrophobicity
+    # Kyte & Doolittle index of hydrophobicity
 AA_HYDROPHOBICITY = {'A': 1.8,
                      'C': 2.5,
                      'D': -3.5,
@@ -169,6 +170,7 @@ AA_HYDROPHILICITY.update({'U': AA_HYDROPHILICITY['C'],
                           'Z': aa_wild_prior('Z', 'E', ['E', 'Q']) * 3.0 + aa_wild_prior('Z', 'Q', ['E', 'Q']) * 0.2,
                           'X': AA_HYDROPHILICITY_MEAN})
 AA_HYDROPHILICITY_NORM = {k: (v - AA_HYDROPHILICITY_MEAN) / AA_HYDROPHILICITY_STD for k, v in AA_HYDROPHILICITY.items()}
+AA_CHARGE = {'K': 10.0, 'R': 12.0, 'H': 5.98}
 
 
 # AMINOACID UTILITY FUNCTIONS
@@ -263,6 +265,27 @@ def get_test_split(y):
     return train_idxs, test_idxs
 
 
+def zip_ngram(seq, n):
+    return zip(*[seq[i:] for i in range(n)])
+
+
+def count_aa_ngram(seq, n=2, symmetric=True):
+    n_grams = zip_ngram(seq, n)
+    keys = AA_CODES_LIST + AA_WILD_LIST
+    keys = list(itertools.product(keys, repeat=n))
+    c = Counter(n_grams)
+    aa_counts = {aa: c[aa] for aa in keys}
+    if symmetric:
+        aa_counts_new = {}
+        for k in keys:
+            aa_counts_new[k] = aa_counts[k] + aa_counts[tuple(reversed(k))]
+        aa_counts = aa_counts_new
+        rel_counts = [aa_counts[aa] / (2 * (len(seq) - n + 1)) for aa in keys]
+    else:
+        rel_counts = [aa_counts[aa] / (len(seq) - n + 1) for aa in keys]
+    return rel_counts, keys
+
+
 # PLOTTING UTILS
 def plot_distribution(data, key='seq_len'):
     sns.distplot(data[key])
@@ -292,6 +315,34 @@ def aminoacid_corr_heatmap(df, df_filt, freq_key='counts_global_', vmax=.4, titl
     new_xticks = ['{} ({})'.format(AA_NAMES[x_tick], x_tick) for x_tick in xticks_aa]
     ax.set_xticklabels(new_xticks)
     ax.set_yticklabels(new_xticks)
+    ax.set_title(title)
+
+
+def _build_aa_matrix(df, freq_key='counts_pairs_'):
+    columns = [col for col in df.columns.values if col.startswith(freq_key)]
+    new_cols = list(set([col.split('_')[-1] for col in columns]))
+    n_aa = len(new_cols)
+    aa_pairs_matrix = np.zeros((n_aa, n_aa))
+    for i, aa1 in enumerate(new_cols):
+        for j, aa2 in enumerate(new_cols):
+            aa_pairs_matrix[i, j] = np.mean(df.loc[:, freq_key + '{}_{}'.format(aa1, aa2)].values)
+    return pd.DataFrame(aa_pairs_matrix, columns=new_cols, index=new_cols)
+
+
+def aminoacid_pairs_heatmap(df, df_filt, freq_key='counts_pairs_', vmax=.05, title=None):
+    df_ = _build_aa_matrix(df, freq_key)
+    df_filt_ = _build_aa_matrix(df_filt, freq_key)
+    aa_pairs = df_filt_ - df_
+    # print(aa_pairs.columns)
+    mask = np.zeros_like(aa_pairs, dtype=np.bool)
+    mask[np.triu_indices_from(mask, 1)] = True
+    cmap = sns.diverging_palette(220, 10, as_cmap=True)
+    plt.subplots(figsize=(9, 7))
+    ax = sns.heatmap(aa_pairs, vmax=vmax, mask=mask, cmap=cmap)
+    xticks_aa = [tick.get_text().split('_')[-1] for tick in ax.get_xticklabels()]
+    new_xticks = ['{} ({})'.format(AA_NAMES[x_tick], x_tick) for x_tick in xticks_aa]
+    #ax.set_xticklabels(new_xticks)
+    #ax.set_yticklabels(new_xticks)
     ax.set_title(title)
 
 

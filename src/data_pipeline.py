@@ -85,7 +85,7 @@ def _assertions(data, eps=1e-7):
     print('Class balance: {}'.format(c))
 
 
-def _create_features(data, local=50, indiv_keys=False):
+def _create_features(data, local=20, indiv_keys=False):
     # Be careful: some chains have less than 50 aminoacids
     aa_list = None
     seq_lens = []
@@ -94,7 +94,11 @@ def _create_features(data, local=50, indiv_keys=False):
     counts_locallast = []
     mol_weights = []
     hydrophobicity = []
+    hydrophobicity_localfirst = []
+    hydrophobicity_locallast = []
     hydrophilicity = []
+    hydrophilicity_localfirst = []
+    hydrophilicity_locallast = []
     for seq in data['seq']:
         # Count aminoacids, find sequence length and compute molecular weight
         # counts, seq_len, mol_weight, aa_list = aa_composition(seq)
@@ -113,12 +117,20 @@ def _create_features(data, local=50, indiv_keys=False):
 
         # Compute hydrophobicity and hydrophilicity
         hydrophobicity.append(seq_hydrophobicity(seq))
+        hydrophobicity_localfirst.append(seq_hydrophobicity(seq[:local]))
+        hydrophobicity_locallast.append(seq_hydrophobicity(seq[-local:]))
         hydrophilicity.append(seq_hydrophilicity(seq))
+        hydrophilicity_localfirst.append(seq_hydrophilicity(seq[:local]))
+        hydrophilicity_locallast.append(seq_hydrophilicity(seq[-local:]))
 
     data['seq_len'] = np.array(seq_lens)
     data['molecular_weight'] = np.array(mol_weights)
     data['hydrophobicity'] = np.array(hydrophobicity)
+    data['hydrophobicity_localfirst'] = np.array(hydrophobicity_localfirst)
+    data['hydrophobicity_locallast'] = np.array(hydrophobicity_locallast)
     data['hydrophilicity'] = np.array(hydrophilicity)
+    data['hydrophilicity_localfirst'] = np.array(hydrophilicity_localfirst)
+    data['hydrophilicity_locallast'] = np.array(hydrophilicity_locallast)
 
     counts = np.array(counts)
     counts_localfirst = np.array(counts_localfirst)
@@ -140,7 +152,7 @@ def _make_numpy(data):
         data[k] = np.array(v)
 
 
-def _create_features_biopython(data, local=50, indiv_keys=False):
+def _create_features_biopython(data, local=20, indiv_keys=False):
     from Bio.SeqUtils.ProtParam import ProteinAnalysis
     from Bio.SeqUtils.ProtParam import ProtParamData
 
@@ -181,12 +193,53 @@ def _create_features_biopython(data, local=50, indiv_keys=False):
         ssf_len = data['secondary_structure_fraction'].shape[1]
         for i in range(ssf_len):
             data['secondary_structure_fraction_{}'.format(i)] = data['secondary_structure_fraction'][:, i]
-            data['secondary_structure_fraction_localfirst_{}'.format(i)] = data['secondary_structure_fraction_localfirst'][:, i]
-            data['secondary_structure_fraction_locallast_{}'.format(i)] = data['secondary_structure_fraction_locallast'][:, i]
+            data['secondary_structure_fraction_localfirst_{}'.format(i)] = data[
+                                                                               'secondary_structure_fraction_localfirst'][
+                                                                           :, i]
+            data['secondary_structure_fraction_locallast_{}'.format(i)] = data[
+                                                                              'secondary_structure_fraction_locallast'][
+                                                                          :, i]
 
         del data['secondary_structure_fraction']
         del data['secondary_structure_fraction_localfirst']
         del data['secondary_structure_fraction_locallast']
+
+
+def _create_2grams(data, add_all=False):
+    aa_dict = {c: i for i, c in enumerate(AA_CODES_LIST)}
+    counts = []
+    for seq in data['seq']:
+        c, keys = count_aa_ngram(seq, 2, symmetric=True)
+        seq_2grams = {}
+        uk1, uk2 = zip(*keys)
+        for c, k1, k2 in zip(c, uk1, uk2):
+            if k1 in seq_2grams.keys():
+                seq_2grams[k1][k2] = c
+            else:
+                seq_2grams[k1] = {k2: c}
+        n_aa = len(AA_CODES_LIST)
+        seq_2grams_matrix = np.zeros((n_aa, n_aa))
+        for aa1, i in aa_dict.items():
+            for aa2, j in aa_dict.items():
+                seq_2grams_matrix[i, j] = seq_2grams[aa1][aa2]
+        counts.append(seq_2grams_matrix)
+    counts = np.array(counts)
+
+    if add_all:
+        for aa1, i in aa_dict.items():
+            for aa2, j in aa_dict.items():
+                data['counts_pairs_{}_{}'.format(aa1, aa2)] = counts[:, i, j]
+    else:
+        # Manually create informative features
+        data['pair_K_R'] = counts[:, aa_dict['K'], aa_dict['R']]
+        data['pair_K_K'] = counts[:, aa_dict['K'], aa_dict['K']]
+        data['pair_R_R'] = counts[:, aa_dict['R'], aa_dict['R']]
+        data['pair_S_S'] = counts[:, aa_dict['S'], aa_dict['S']]
+        data['pair_E_E'] = counts[:, aa_dict['E'], aa_dict['E']]
+
+        data['pair_E_K'] = counts[:, aa_dict['E'], aa_dict['K']]
+        data['pair_E_D'] = counts[:, aa_dict['E'], aa_dict['D']]
+        data['pair_E_L'] = counts[:, aa_dict['E'], aa_dict['L']]
 
 
 def _normalize_column(train_arr, test_arr, mode=0):
@@ -207,10 +260,12 @@ def _normalize(train, test):
     normalize_features = {'seq_len', 'molecular_weight', 'iso_point',
                           'aromaticity', 'instability_index', 'flexibility',
                           'molecular_weight_localfirst', 'molecular_weight_locallast',
-                          'iso_point_localfirst', 'iso_point_locallast',
+                          'iso_point_localfirst', 'iso_point_locallast', 'pair_K_R',
+                          'pair_R_R', 'pair_K_K', 'pair_S_S', 'pair_E_E'
                           # 'gravy_localfirst', 'gravy_locallast',
                           # 'aromaticity_localfirst', 'aromaticity_locallast',
                           }
+
     for feature in normalize_features:
         train[feature], test[feature] = _normalize_column(train[feature], test[feature])
 
@@ -238,9 +293,21 @@ def _get_features(data):
                         # data['aromaticity_localfirst'][:, None],
                         # data['aromaticity_localfirst'][:, None],
                         data['hydrophobicity'][:, None],
-                        data['hydrophilicity'][:, None]
+                        data['hydrophobicity_localfirst'][:, None],
+                        data['hydrophobicity_locallast'][:, None],
+                        data['hydrophilicity'][:, None],
+                        data['hydrophilicity_localfirst'][:, None],
+                        data['hydrophilicity_locallast'][:, None],
                         # data['local_ii_first'][:, None],
                         # data['local_ii_last'][:, None]
+                        data['pair_K_R'][:, None],
+                        data['pair_R_R'][:, None],
+                        data['pair_K_K'][:, None],
+                        # data['pair_E_E'][:, None],
+                        # data['pair_S_S'][:, None],
+                        # data['pair_E_K'][:, None],
+                        # data['pair_E_L'][:, None],
+                        # data['pair_E_D'][:, None]
                         ), axis=1)
     y = data['class']
     return x, y
@@ -281,6 +348,8 @@ def _encode_aminoacids(data, aa_dict=None, one_hot=False, pad=None):
 
 def get_handcrafted_data(one_hot=False):
     train, test, _ = _get_data()
+    _create_2grams(train, add_all=False)
+    _create_2grams(test, add_all=False)
     _create_features(train)
     _create_features(test)
     _create_features_biopython(train)
@@ -298,6 +367,8 @@ def get_handcrafted_raw_data():
     # For analysis purposes
     train, test, class_dict = _get_data()
     class_dict = _encode_class(train)
+    _create_2grams(train, add_all=True)
+    _create_2grams(test, add_all=True)
     _create_features(train, indiv_keys=True)
     _create_features(test, indiv_keys=True)
     _create_features_biopython(train, indiv_keys=True)
