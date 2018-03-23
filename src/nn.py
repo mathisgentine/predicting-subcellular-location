@@ -1,6 +1,10 @@
+"""
+nn.py
+Trains a feed-forward network to perform subcellular location prediction
+Author: Ramon Viñas, 2018
+Contact: ramon.torne.17@ucl.ac.uk
+"""
 from data_pipeline import get_handcrafted_data, N_CLASSES
-from sklearn.model_selection import cross_val_score
-import numpy as np
 from keras.models import Model, Input
 from keras.layers import LSTM, Dense, Dropout, Activation, Embedding
 from keras.optimizers import Adam
@@ -9,7 +13,7 @@ from keras.models import load_model
 
 
 BATCH_SIZE = 128
-EPOCHS = 70
+EPOCHS = 35
 
 
 def get_model(input_dim, n_classes):
@@ -32,7 +36,7 @@ def get_model(input_dim, n_classes):
     return model
 
 
-x_train, y_train, x_test, class_dict = get_handcrafted_data(one_hot=True)
+x_train, y_train, x_test, test_info, class_dict = get_handcrafted_data(one_hot=True)
 train_indices, val_indices = get_val_split(y_train)
 x_val, y_val = x_train[val_indices, :], y_train[val_indices]
 x_train, y_train = x_train[train_indices, :], y_train[train_indices]
@@ -50,6 +54,3 @@ model.fit(x=x_train,
 cv_score = model.evaluate(x_val, y_val)[1]
 print('CV score: {}'.format(cv_score))
 
-model.save('../checkpoints/model.h5')
-del model
-model = load_model('../checkpoints/model.h5')

@@ -1,6 +1,8 @@
 """
 utils.py
-Utilities
+Subcellular location prediction utilities
+Author: Ramon Viñas, 2018
+Contact: ramon.torne.17@ucl.ac.uk
 """
 from collections import Counter
 import seaborn as sns
@@ -113,7 +115,7 @@ AA_MOLECULAR_WEIGHTS.update({'U': 167.1,  # 21st aminoacid
 AA_MOLECULAR_WEIGHTS_NORM = {k: (v - AA_MOLECULAR_WEIGHTS_MEAN) / AA_MOLECULAR_WEIGHTS_STD for k, v in
                              AA_MOLECULAR_WEIGHTS.items()}
 
-    # Kyte & Doolittle index of hydrophobicity
+# Kyte & Doolittle index of hydrophobicity
 AA_HYDROPHOBICITY = {'A': 1.8,
                      'C': 2.5,
                      'D': -3.5,
@@ -341,8 +343,8 @@ def aminoacid_pairs_heatmap(df, df_filt, freq_key='counts_pairs_', vmax=.05, tit
     ax = sns.heatmap(aa_pairs, vmax=vmax, mask=mask, cmap=cmap)
     xticks_aa = [tick.get_text().split('_')[-1] for tick in ax.get_xticklabels()]
     new_xticks = ['{} ({})'.format(AA_NAMES[x_tick], x_tick) for x_tick in xticks_aa]
-    #ax.set_xticklabels(new_xticks)
-    #ax.set_yticklabels(new_xticks)
+    ax.set_xticklabels(new_xticks, rotation='vertical')
+    ax.set_yticklabels(new_xticks, rotation='horizontal')
     ax.set_title(title)
 
 

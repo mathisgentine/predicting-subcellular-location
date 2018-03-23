@@ -1,6 +1,6 @@
 """
 data_pipeline.py
-Parses FASTA data and creates features from the aminoacid sequences
+Parses FASTA data and creates features from the amino acid sequences
 Author: Ramon Viñas, 2018
 Contact: ramon.torne.17@ucl.ac.uk
 
@@ -63,6 +63,8 @@ def _get_data():
         seq_len = _load_data(train, c, c)
         max_len = max((max_len, seq_len))
     print('Max sequence length: {}'.format(max_len))
+    print('Train sequences: {}'.format(len(train['info'])))
+    print('Test sequences: {}'.format(len(test['info'])))
     return train, test, max_len
 
 
@@ -154,7 +156,6 @@ def _make_numpy(data):
 
 def _create_features_biopython(data, local=20, indiv_keys=False):
     from Bio.SeqUtils.ProtParam import ProteinAnalysis
-    from Bio.SeqUtils.ProtParam import ProtParamData
 
     feature_fun = {
         'molecular_weight{}': lambda pa: pa.molecular_weight(),
@@ -205,41 +206,53 @@ def _create_features_biopython(data, local=20, indiv_keys=False):
         del data['secondary_structure_fraction_locallast']
 
 
-def _create_2grams(data, add_all=False):
+def _count_2grams(seq, counts, aa_dict, symmetric=True):
+    c, keys = count_aa_ngram(seq, 2, symmetric=symmetric)
+    seq_2grams = {}
+    uk1, uk2 = zip(*keys)
+    for c, k1, k2 in zip(c, uk1, uk2):
+        if k1 in seq_2grams.keys():
+            seq_2grams[k1][k2] = c
+        else:
+            seq_2grams[k1] = {k2: c}
+    n_aa = len(AA_CODES_LIST)
+    seq_2grams_matrix = np.zeros((n_aa, n_aa))
+    for aa1, i in aa_dict.items():
+        for aa2, j in aa_dict.items():
+            seq_2grams_matrix[i, j] = seq_2grams[aa1][aa2]
+    counts.append(seq_2grams_matrix)
+
+
+def _create_2grams(data, local=70, add_all=False):
     aa_dict = {c: i for i, c in enumerate(AA_CODES_LIST)}
     counts = []
+    counts_localfirst = []
+    counts_locallast = []
     for seq in data['seq']:
-        c, keys = count_aa_ngram(seq, 2, symmetric=True)
-        seq_2grams = {}
-        uk1, uk2 = zip(*keys)
-        for c, k1, k2 in zip(c, uk1, uk2):
-            if k1 in seq_2grams.keys():
-                seq_2grams[k1][k2] = c
-            else:
-                seq_2grams[k1] = {k2: c}
-        n_aa = len(AA_CODES_LIST)
-        seq_2grams_matrix = np.zeros((n_aa, n_aa))
-        for aa1, i in aa_dict.items():
-            for aa2, j in aa_dict.items():
-                seq_2grams_matrix[i, j] = seq_2grams[aa1][aa2]
-        counts.append(seq_2grams_matrix)
+        _count_2grams(seq, counts, aa_dict, symmetric=True)
+        if local is not None:
+            _count_2grams(seq[:local], counts_localfirst, aa_dict, symmetric=False)
+            _count_2grams(seq[-local:], counts_locallast, aa_dict, symmetric=False)
+
     counts = np.array(counts)
+    counts_localfirst = np.array(counts_localfirst)
+    counts_locallast = np.array(counts_locallast)
 
     if add_all:
         for aa1, i in aa_dict.items():
             for aa2, j in aa_dict.items():
                 data['counts_pairs_{}_{}'.format(aa1, aa2)] = counts[:, i, j]
+                if local is not None:
+                    data['counts_pairs_localfirst_{}_{}'.format(aa1, aa2)] = counts_localfirst[:, i, j]
+                    data['counts_pairs_locallast_{}_{}'.format(aa1, aa2)] = counts_locallast[:, i, j]
     else:
         # Manually create informative features
-        data['pair_K_R'] = counts[:, aa_dict['K'], aa_dict['R']]
-        data['pair_K_K'] = counts[:, aa_dict['K'], aa_dict['K']]
-        data['pair_R_R'] = counts[:, aa_dict['R'], aa_dict['R']]
-        data['pair_S_S'] = counts[:, aa_dict['S'], aa_dict['S']]
-        data['pair_E_E'] = counts[:, aa_dict['E'], aa_dict['E']]
-
-        data['pair_E_K'] = counts[:, aa_dict['E'], aa_dict['K']]
-        data['pair_E_D'] = counts[:, aa_dict['E'], aa_dict['D']]
-        data['pair_E_L'] = counts[:, aa_dict['E'], aa_dict['L']]
+        select_pairs = [('K', 'R'), ('K', 'K'), ('R', 'R'), ('S', 'S'), ('E', 'E'), ('L', 'L'), ('L', 'R')]
+        for aa1, aa2 in select_pairs:
+            data['pair_{}_{}'.format(aa1, aa2)] = counts[:, aa_dict[aa1], aa_dict[aa2]]
+            if local is not None:
+                data['pair_{}_{}_localfirst'.format(aa1, aa2)] = counts_localfirst[:, aa_dict[aa1], aa_dict[aa2]]
+                data['pair_{}_{}_locallast'.format(aa1, aa2)] = counts_locallast[:, aa_dict[aa1], aa_dict[aa2]]
 
 
 def _normalize_column(train_arr, test_arr, mode=0):
@@ -261,7 +274,12 @@ def _normalize(train, test):
                           'aromaticity', 'instability_index', 'flexibility',
                           'molecular_weight_localfirst', 'molecular_weight_locallast',
                           'iso_point_localfirst', 'iso_point_locallast', 'pair_K_R',
-                          'pair_R_R', 'pair_K_K', 'pair_S_S', 'pair_E_E'
+                          'pair_R_R', 'pair_K_K', 'pair_S_S', 'pair_E_E',
+                          'pair_K_R_localfirst', 'pair_R_R_localfirst', 'pair_K_K_localfirst',
+                          'pair_K_R_locallast', 'pair_R_R_locallast', 'pair_K_K_locallast',
+                          'pair_L_L', 'pair_L_R',
+                          'pair_L_L_localfirst', 'pair_L_R_localfirst',
+                          'pair_L_L_locallast', 'pair_L_R_locallast',
                           # 'gravy_localfirst', 'gravy_locallast',
                           # 'aromaticity_localfirst', 'aromaticity_locallast',
                           }
@@ -303,6 +321,14 @@ def _get_features(data):
                         data['pair_K_R'][:, None],
                         data['pair_R_R'][:, None],
                         data['pair_K_K'][:, None],
+                        # data['pair_L_L_localfirst'][:, None],
+                        # data['pair_L_L_locallast'][:, None],
+                        # data['pair_K_R_localfirst'][:, None],
+                        # data['pair_R_R_localfirst'][:, None],
+                        # data['pair_K_K_localfirst'][:, None],
+                        # data['pair_K_R_locallast'][:, None],
+                        # data['pair_R_R_locallast'][:, None],
+                        # data['pair_K_K_locallast'][:, None],
                         # data['pair_E_E'][:, None],
                         # data['pair_S_S'][:, None],
                         # data['pair_E_K'][:, None],
@@ -360,7 +386,8 @@ def get_handcrafted_data(one_hot=False):
     class_dict = _encode_class(train, one_hot=one_hot)
     x_train, y_train = _get_features(train)
     x_test, _ = _get_features(test)
-    return x_train, y_train, x_test, class_dict
+    print('Using {} features'.format(x_test.shape[1]))
+    return x_train, y_train, x_test, test['info'], class_dict
 
 
 def get_handcrafted_raw_data():
